@@ -115,8 +115,16 @@ function create_schema() {
     docker_exec -i "$1" "psql -U postgres" < schema.sql
 }
 
+function is_timescaledb_available() {
+    docker_exec "$1" "psql -U postgres -tAc \"SELECT 1 FROM pg_available_extensions WHERE name='timescaledb'\"" 2>/dev/null | grep -q "1"
+}
+
 function create_timescaledb() {
-    docker_exec -i "$1" "psql -U postgres" < timescaledb.sql
+    if is_timescaledb_available "$1"; then
+        docker_exec -i "$1" "psql -U postgres" < timescaledb.sql
+    else
+        log_info "TimescaleDB not available, skipping..."
+    fi
 }
 
 function drop_timescaledb() {

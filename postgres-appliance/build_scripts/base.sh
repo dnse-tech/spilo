@@ -7,6 +7,7 @@
 export DEBIAN_FRONTEND=noninteractive
 MAKEFLAGS="-j $(grep -c ^processor /proc/cpuinfo)"
 export MAKEFLAGS
+ARCH="$(dpkg --print-architecture)"
 
 set -ex
 sed -i 's/^#\s*\(deb.*universe\)$/\1/g' /etc/apt/sources.list
@@ -96,8 +97,12 @@ for version in $DEB_PG_SUPPORTED_VERSIONS; do
                 "postgresql-${version}-wal2json"
                 "postgresql-${version}-decoderbufs"
                 "postgresql-${version}-pllua"
-                "postgresql-${version}-pgvector"
                 "postgresql-${version}-roaringbitmap")
+
+        # pgvector not available for s390x
+        if [ "$ARCH" != "s390x" ]; then
+            EXTRAS+=("postgresql-${version}-pgvector")
+        fi
 
         if [ "$version" -ge 14 ]; then
             EXTRAS+=("postgresql-${version}-pgfaceting")
@@ -109,10 +114,13 @@ for version in $DEB_PG_SUPPORTED_VERSIONS; do
 
     fi
 
-    if [ "${TIMESCALEDB_APACHE_ONLY}" = "true" ]; then
-        EXTRAS+=("timescaledb-2-oss-postgresql-${version}")
-    else
-        EXTRAS+=("timescaledb-2-postgresql-${version}")
+    # TimescaleDB not available for s390x
+    if [ "$ARCH" != "s390x" ]; then
+        if [ "${TIMESCALEDB_APACHE_ONLY}" = "true" ]; then
+            EXTRAS+=("timescaledb-2-oss-postgresql-${version}")
+        else
+            EXTRAS+=("timescaledb-2-postgresql-${version}")
+        fi
     fi
 
     # Install PostgreSQL binaries, contrib, plproxy and multiple pl's
@@ -126,21 +134,24 @@ for version in $DEB_PG_SUPPORTED_VERSIONS; do
         "postgresql-${version}-pg-stat-kcache" \
         "${EXTRAS[@]}"
 
-    # Clean up timescaledb versions except the last 5 minor versions
-    exclude_patterns=()
-    versions=$(find "/usr/lib/postgresql/$version/lib/" -name 'timescaledb-2.*.so' | sed -rn 's/.*timescaledb-([1-9]+\.[0-9]+\.[0-9]+)\.so$/\1/p' | sort -rV)
-    latest_minor_versions=$(echo "$versions" | awk -F. '{print $1"."$2}' | uniq | head -n 5)
-    for minor in $latest_minor_versions; do
-        for full_version in $(echo "$versions" | grep "^$minor"); do
-            exclude_patterns+=(! -name timescaledb-"${full_version}".so)
-            exclude_patterns+=(! -name timescaledb-tsl-"${full_version}".so)
+    # Clean up timescaledb versions except the last 5 minor versions (skip for s390x)
+    if [ "$ARCH" != "s390x" ]; then
+        exclude_patterns=()
+        versions=$(find "/usr/lib/postgresql/$version/lib/" -name 'timescaledb-2.*.so' | sed -rn 's/.*timescaledb-([1-9]+\.[0-9]+\.[0-9]+)\.so$/\1/p' | sort -rV)
+        latest_minor_versions=$(echo "$versions" | awk -F. '{print $1"."$2}' | uniq | head -n 5)
+        for minor in $latest_minor_versions; do
+            for full_version in $(echo "$versions" | grep "^$minor"); do
+                exclude_patterns+=(! -name timescaledb-"${full_version}".so)
+                exclude_patterns+=(! -name timescaledb-tsl-"${full_version}".so)
+            done
         done
-    done
-    find "/usr/lib/postgresql/$version/lib/" \( -name 'timescaledb-2.*.so' -o -name 'timescaledb-tsl-2.*.so' \) "${exclude_patterns[@]}" -delete
+        find "/usr/lib/postgresql/$version/lib/" \( -name 'timescaledb-2.*.so' -o -name 'timescaledb-tsl-2.*.so' \) "${exclude_patterns[@]}" -delete
+    fi
 
     # Install 3rd party stuff
 
-    if [ "${TIMESCALEDB_APACHE_ONLY}" != "true" ] && [ "${TIMESCALEDB_TOOLKIT}" = "true" ]; then
+    # TimescaleDB Toolkit not available for s390x
+    if [ "$ARCH" != "s390x" ] && [ "${TIMESCALEDB_APACHE_ONLY}" != "true" ] && [ "${TIMESCALEDB_TOOLKIT}" = "true" ]; then
         apt-get update
         if [ "$(apt-cache search --names-only "^timescaledb-toolkit-postgresql-${version}$" | wc -l)" -eq 1 ]; then
             apt-get install "timescaledb-toolkit-postgresql-$version"
