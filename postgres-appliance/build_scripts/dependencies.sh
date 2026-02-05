@@ -33,7 +33,7 @@ WALG_REPO="https://github.com/wal-g/wal-g"
 if [ "$ARCH" = "amd64" ]; then
     PKG_NAME='wal-g-pg-ubuntu-20.04-amd64'
 elif [ "$ARCH" = "s390x" ]; then
-    PKG_NAME='wal-g-pg-ubuntu-20.04-s390x'
+    PKG_NAME='wal-g-pg-ubuntu20.04-s390x'
     WALG_REPO="https://github.com/dnse-tech/wal-g"
 else
     PKG_NAME='wal-g-pg-ubuntu-20.04-aarch64'
