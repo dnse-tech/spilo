@@ -28,12 +28,17 @@ apt-get install -y curl ca-certificates
 
 mkdir /builddeps/wal-g
 
+# Determine wal-g package name and source based on architecture
+WALG_REPO="https://github.com/wal-g/wal-g"
 if [ "$ARCH" = "amd64" ]; then
     PKG_NAME='wal-g-pg-ubuntu-20.04-amd64'
+elif [ "$ARCH" = "s390x" ]; then
+    PKG_NAME='wal-g-pg-ubuntu-20.04-s390x'
+    WALG_REPO="https://github.com/dnse-tech/wal-g"
 else
     PKG_NAME='wal-g-pg-ubuntu-20.04-aarch64'
 fi
 
-curl -sL "https://github.com/wal-g/wal-g/releases/download/$WALG_VERSION/$PKG_NAME.tar.gz" \
+curl -sL "$WALG_REPO/releases/download/$WALG_VERSION/$PKG_NAME.tar.gz" \
             | tar -C /builddeps/wal-g -xz
 mv "/builddeps/wal-g/$PKG_NAME" /builddeps/wal-g/wal-g

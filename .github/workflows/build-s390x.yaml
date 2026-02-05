@@ -1,0 +1,57 @@
+name: Build s390x image
+
+on:
+  push:
+    tags: ['*']
+  workflow_dispatch:
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: read
+      packages: write
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up QEMU
+      uses: docker/setup-qemu-action@v3
+      with:
+        platforms: linux/s390x
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+    - name: Login to GHCR
+      uses: docker/login-action@v3
+      with:
+        registry: ${{ env.REGISTRY }}
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Derive image name
+      id: image
+      run: |
+        PGVERSION=$(sed -n 's/^ARG PGVERSION=\([1-9][0-9]*\).*$/\1/p' postgres-appliance/Dockerfile)
+        if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+          TAG="${GITHUB_REF#refs/tags/}"
+        else
+          TAG="latest"
+        fi
+        echo "NAME=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-$PGVERSION:$TAG-s390x" >> $GITHUB_OUTPUT
+
+    - name: Build and push s390x image
+      uses: docker/build-push-action@v6
+      with:
+        context: postgres-appliance/
+        push: true
+        tags: ${{ steps.image.outputs.NAME }}
+        platforms: linux/s390x
+        build-args: |
+          TIMESCALEDB_APACHE_ONLY=false
+          TIMESCALEDB_TOOLKIT=false
+      timeout-minutes: 180
