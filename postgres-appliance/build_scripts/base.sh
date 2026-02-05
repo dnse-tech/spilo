@@ -71,9 +71,11 @@ apt-get install -y \
 sed -ri 's/#(create_main_cluster) .*$/\1 = false/' /etc/postgresql-common/createcluster.conf
 
 for version in $DEB_PG_SUPPORTED_VERSIONS; do
-    # Update PGDG sources to specific version
-    sed -i "s/ main.*$/ main $version/g" /etc/apt/sources.list.d/pgdg.list
-    apt-get update
+    # Update PGDG sources to specific version (skip for s390x - archive uses flat 'main')
+    if [ "$ARCH" != "s390x" ]; then
+        sed -i "s/ main.*$/ main $version/g" /etc/apt/sources.list.d/pgdg.list
+        apt-get update
+    fi
 
     if [ "$DEMO" != "true" ]; then
         EXTRAS=("postgresql-pltcl-${version}"
@@ -178,8 +180,10 @@ done
 
 apt-get install -y skytools3-ticker pgbouncer
 
-# Reset PGDG sources to default
-sed -i "s/ main.*$/ main/g" /etc/apt/sources.list.d/pgdg.list
+# Reset PGDG sources to default (skip for s390x - archive uses flat 'main')
+if [ "$ARCH" != "s390x" ]; then
+    sed -i "s/ main.*$/ main/g" /etc/apt/sources.list.d/pgdg.list
+fi
 apt-get update
 apt-get install -y postgresql postgresql-server-dev-all postgresql-all libpq-dev
 for version in $DEB_PG_SUPPORTED_VERSIONS; do
