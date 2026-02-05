@@ -36,14 +36,21 @@ ln -s /usr/lib/locale/locale-archive.22 /run/locale-archive
 ARCH="$(dpkg --print-architecture)"
 DISTRIB_CODENAME=$(sed -n 's/DISTRIB_CODENAME=//p' /etc/lsb-release)
 
-# Add PGDG repositories (skip for s390x - use Ubuntu native packages)
-if [ "$ARCH" != "s390x" ]; then
+# Add PGDG repositories
+if [ "$ARCH" = "s390x" ]; then
+    # s390x uses the PGDG archive (packages no longer updated but available)
+    for t in deb deb-src; do
+        echo "$t https://apt-archive.postgresql.org/pub/repos/apt/ ${DISTRIB_CODENAME}-pgdg-archive main" >> /etc/apt/sources.list.d/pgdg.list
+    done
+else
     for t in deb deb-src; do
         echo "$t http://apt.postgresql.org/pub/repos/apt/ ${DISTRIB_CODENAME}-pgdg main" >> /etc/apt/sources.list.d/pgdg.list
     done
-    curl -s -o - https://www.postgresql.org/media/keys/ACCC4CF8.asc | gpg --dearmor > /etc/apt/trusted.gpg.d/apt.postgresql.org.gpg
+fi
+curl -s -o - https://www.postgresql.org/media/keys/ACCC4CF8.asc | gpg --dearmor > /etc/apt/trusted.gpg.d/apt.postgresql.org.gpg
 
-    # add TimescaleDB repository (not available for s390x)
+# add TimescaleDB repository (not available for s390x)
+if [ "$ARCH" != "s390x" ]; then
     echo "deb [signed-by=/etc/apt/keyrings/timescale_timescaledb-archive-keyring.gpg] https://packagecloud.io/timescale/timescaledb/ubuntu/ ${DISTRIB_CODENAME} main" | tee /etc/apt/sources.list.d/timescaledb.list
     curl -fsSL https://packagecloud.io/timescale/timescaledb/gpgkey | gpg --dearmor | tee /etc/apt/keyrings/timescale_timescaledb-archive-keyring.gpg > /dev/null
 fi

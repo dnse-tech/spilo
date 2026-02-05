@@ -71,10 +71,8 @@ apt-get install -y \
 sed -ri 's/#(create_main_cluster) .*$/\1 = false/' /etc/postgresql-common/createcluster.conf
 
 for version in $DEB_PG_SUPPORTED_VERSIONS; do
-    # Update PGDG sources to specific version (skip for s390x - no PGDG repo)
-    if [ "$ARCH" != "s390x" ]; then
-        sed -i "s/ main.*$/ main $version/g" /etc/apt/sources.list.d/pgdg.list
-    fi
+    # Update PGDG sources to specific version
+    sed -i "s/ main.*$/ main $version/g" /etc/apt/sources.list.d/pgdg.list
     apt-get update
 
     if [ "$DEMO" != "true" ]; then
@@ -82,7 +80,6 @@ for version in $DEB_PG_SUPPORTED_VERSIONS; do
                 "postgresql-${version}-dirtyread"
                 "postgresql-${version}-extra-window-functions"
                 "postgresql-${version}-first-last-agg"
-                "postgresql-${version}-hll"
                 "postgresql-${version}-hypopg"
                 "postgresql-${version}-partman"
                 "postgresql-${version}-plproxy"
@@ -100,11 +97,12 @@ for version in $DEB_PG_SUPPORTED_VERSIONS; do
                 "postgresql-${version}-wal2json"
                 "postgresql-${version}-decoderbufs"
                 "postgresql-${version}-pllua"
-                "postgresql-${version}-roaringbitmap")
+                "postgresql-${version}-pgvector")
 
-        # pgvector not available for s390x
+        # hll and roaringbitmap not available for s390x
         if [ "$ARCH" != "s390x" ]; then
-            EXTRAS+=("postgresql-${version}-pgvector")
+            EXTRAS+=("postgresql-${version}-hll"
+                     "postgresql-${version}-roaringbitmap")
         fi
 
         if [ "$version" -ge 14 ]; then
@@ -180,10 +178,8 @@ done
 
 apt-get install -y skytools3-ticker pgbouncer
 
-# Reset PGDG sources to default (skip for s390x - no PGDG repo)
-if [ "$ARCH" != "s390x" ]; then
-    sed -i "s/ main.*$/ main/g" /etc/apt/sources.list.d/pgdg.list
-fi
+# Reset PGDG sources to default
+sed -i "s/ main.*$/ main/g" /etc/apt/sources.list.d/pgdg.list
 apt-get update
 apt-get install -y postgresql postgresql-server-dev-all postgresql-all libpq-dev
 for version in $DEB_PG_SUPPORTED_VERSIONS; do
