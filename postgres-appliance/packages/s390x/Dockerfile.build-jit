@@ -65,11 +65,7 @@ RUN set -ex; \
         cp /tmp/install-$version/usr/lib/postgresql/$version/lib/llvmjit_types.bc \
            $PKG_DIR/usr/lib/postgresql/$version/lib/ 2>/dev/null || true; \
         \
-        # Copy bitcode directory if exists
-        if [ -d /tmp/install-$version/usr/lib/postgresql/$version/lib/bitcode ]; then \
-            cp -r /tmp/install-$version/usr/lib/postgresql/$version/lib/bitcode \
-               $PKG_DIR/usr/lib/postgresql/$version/lib/; \
-        fi; \
+        # NOTE: Do NOT copy bitcode/ directory - it comes with main postgresql-* package
         \
         # Create control file
         echo "Package: postgresql-$version-jit" > $PKG_DIR/DEBIAN/control; \
