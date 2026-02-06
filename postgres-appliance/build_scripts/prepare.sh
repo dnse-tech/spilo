@@ -49,6 +49,13 @@ else
 fi
 curl -s -o - https://www.postgresql.org/media/keys/ACCC4CF8.asc | gpg --dearmor > /etc/apt/trusted.gpg.d/apt.postgresql.org.gpg
 
+# Install pre-built JIT packages for s390x (provides postgresql-*-jit-llvm virtual package)
+if [ "$ARCH" = "s390x" ] && [ -d /builddeps/packages/s390x ]; then
+    apt-get update
+    apt-get install -y libllvm15
+    dpkg -i /builddeps/packages/s390x/postgresql-*-jit_*.deb || true
+fi
+
 # add TimescaleDB repository (not available for s390x)
 if [ "$ARCH" != "s390x" ]; then
     echo "deb [signed-by=/etc/apt/keyrings/timescale_timescaledb-archive-keyring.gpg] https://packagecloud.io/timescale/timescaledb/ubuntu/ ${DISTRIB_CODENAME} main" | tee /etc/apt/sources.list.d/timescaledb.list
