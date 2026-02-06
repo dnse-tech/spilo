@@ -1,0 +1,97 @@
+# Dockerfile.build-jit
+# Builds postgresql-*-jit packages for s390x architecture
+#
+# Build with QEMU + Buildx:
+#   docker buildx build --platform linux/s390x \
+#       -f Dockerfile.build-jit \
+#       -o type=local,dest=. \
+#       .
+#
+# Output: postgresql-{13,14,15,16,17}-jit_*.deb files
+
+FROM ubuntu:22.04 AS builder
+
+ARG DEBIAN_FRONTEND=noninteractive
+ARG PG_VERSIONS="13 14 15 16 17 18"
+ARG LLVM_VERSION=15
+
+# Install build dependencies
+RUN apt-get update && apt-get install -y \
+    llvm-${LLVM_VERSION} llvm-${LLVM_VERSION}-dev \
+    clang-${LLVM_VERSION} libclang-${LLVM_VERSION}-dev \
+    build-essential bison flex libreadline-dev \
+    zlib1g-dev libssl-dev libxml2-dev libxslt1-dev \
+    pkg-config libicu-dev git curl ca-certificates \
+    dpkg-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /build
+
+# Build JIT packages for each PostgreSQL version
+RUN set -ex; \
+    mkdir -p /output; \
+    for version in ${PG_VERSIONS}; do \
+        echo "=== Building JIT for PostgreSQL $version ==="; \
+        \
+        # Determine git branch
+        BRANCH="REL_${version}_STABLE"; \
+        \
+        # Clone PostgreSQL source
+        git clone --depth 1 --branch $BRANCH \
+            https://github.com/postgres/postgres.git /tmp/pg-$version; \
+        cd /tmp/pg-$version; \
+        \
+        # Configure with LLVM
+        ./configure \
+            --prefix=/usr/lib/postgresql/$version \
+            --with-llvm \
+            --with-icu \
+            --with-ssl=openssl \
+            LLVM_CONFIG=/usr/bin/llvm-config-${LLVM_VERSION} \
+            CLANG=/usr/bin/clang-${LLVM_VERSION}; \
+        \
+        # Build PostgreSQL (JIT requires full build)
+        make -j$(nproc) world-bin; \
+        make DESTDIR=/tmp/install-$version install; \
+        \
+        # Create package structure
+        PKG_DIR=/tmp/pkg-$version; \
+        mkdir -p $PKG_DIR/DEBIAN; \
+        mkdir -p $PKG_DIR/usr/lib/postgresql/$version/lib; \
+        \
+        # Copy JIT files from installed location
+        cp /tmp/install-$version/usr/lib/postgresql/$version/lib/llvmjit.so \
+           $PKG_DIR/usr/lib/postgresql/$version/lib/ 2>/dev/null || true; \
+        cp /tmp/install-$version/usr/lib/postgresql/$version/lib/llvmjit_types.bc \
+           $PKG_DIR/usr/lib/postgresql/$version/lib/ 2>/dev/null || true; \
+        \
+        # Copy bitcode directory if exists
+        if [ -d /tmp/install-$version/usr/lib/postgresql/$version/lib/bitcode ]; then \
+            cp -r /tmp/install-$version/usr/lib/postgresql/$version/lib/bitcode \
+               $PKG_DIR/usr/lib/postgresql/$version/lib/; \
+        fi; \
+        \
+        # Create control file
+        echo "Package: postgresql-$version-jit" > $PKG_DIR/DEBIAN/control; \
+        echo "Version: ${version}.0-1.s390x.spilo" >> $PKG_DIR/DEBIAN/control; \
+        echo "Architecture: s390x" >> $PKG_DIR/DEBIAN/control; \
+        echo "Depends: libllvm${LLVM_VERSION}" >> $PKG_DIR/DEBIAN/control; \
+        echo "Provides: postgresql-$version-jit-llvm (= ${LLVM_VERSION})" >> $PKG_DIR/DEBIAN/control; \
+        echo "Maintainer: Spilo <noreply@example.com>" >> $PKG_DIR/DEBIAN/control; \
+        echo "Description: LLVM JIT support for PostgreSQL $version (s390x)" >> $PKG_DIR/DEBIAN/control; \
+        \
+        # Build .deb
+        dpkg-deb --build $PKG_DIR \
+            /output/postgresql-${version}-jit_${version}.0-1.s390x_s390x.deb; \
+        \
+        # Cleanup and reset working directory
+        cd /build; \
+        rm -rf /tmp/pg-$version $PKG_DIR /tmp/install-$version; \
+        \
+        echo "=== Built: postgresql-$version-jit ==="; \
+    done; \
+    ls -la /output/
+
+# Export only the .deb files
+FROM scratch AS export
+COPY --from=builder /output/*.deb /
