@@ -64,7 +64,7 @@ jobs:
       run: |
         bash postgres-appliance/tests/test_spilo.sh 
 
-    - name: Build and push amd64 image to ghcr (arm64 deferred: QEMU libc-bin segfault)
+    - name: Build and push amd64 image to ghcr
       uses: docker/build-push-action@v6
       with:
         context: "postgres-appliance/"
