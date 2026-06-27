@@ -126,10 +126,14 @@ for version in $DEB_PG_SUPPORTED_VERSIONS; do
         "postgresql-${version}-pg-stat-kcache" \
         "${EXTRAS[@]}"
 
-    # Clean up timescaledb versions except the last 5 minor versions
+    # Clean up timescaledb versions except the last 12 minor versions.
+    # The window must be wide enough that a TimescaleDB version installed on the
+    # oldest supported PostgreSQL major (e.g. 2.19.x on PG13/14) is still present
+    # on newer majors, otherwise in-place major upgrades fail pg_upgrade --check
+    # with "could not access file $libdir/timescaledb-<old version>".
     exclude_patterns=()
     versions=$(find "/usr/lib/postgresql/$version/lib/" -name 'timescaledb-2.*.so' | sed -rn 's/.*timescaledb-([1-9]+\.[0-9]+\.[0-9]+)\.so$/\1/p' | sort -rV)
-    latest_minor_versions=$(echo "$versions" | awk -F. '{print $1"."$2}' | uniq | head -n 5)
+    latest_minor_versions=$(echo "$versions" | awk -F. '{print $1"."$2}' | uniq | head -n 12)
     for minor in $latest_minor_versions; do
         for full_version in $(echo "$versions" | grep "^$minor"); do
             exclude_patterns+=(! -name timescaledb-"${full_version}".so)

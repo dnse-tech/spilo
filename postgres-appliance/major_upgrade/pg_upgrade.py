@@ -225,17 +225,6 @@ class _PostgresqlUpgrade(Postgresql):
             shutil.rmtree(upgrade_dir)
             return True
 
-        # DIAGNOSTIC (temporary): surface pg_upgrade failure details in the log
-        import glob
-        for pat in (os.path.join(self._new_data_dir, 'pg_upgrade_output.d', '**', 'loadable_libraries.txt'),
-                    os.path.join(upgrade_dir, 'pg_upgrade_output.d', '**', 'loadable_libraries.txt')):
-            for f in glob.glob(pat, recursive=True):
-                try:
-                    with open(f) as fh:
-                        logger.error('DIAG pg_upgrade %s:\n%s', f, fh.read())
-                except Exception as e:
-                    logger.error('DIAG could not read %s: %r', f, e)
-
     def prepare_new_pgdata(self, version):
         from spilo_commons import append_extensions
 
