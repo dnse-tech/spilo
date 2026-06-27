@@ -121,9 +121,33 @@ class _PostgresqlUpgrade(Postgresql):
 
         for d in self._get_all_databases():
             conn_kwargs['dbname'] = d
+
+            # TimescaleDB only allows "ALTER EXTENSION timescaledb UPDATE" when
+            # it is the very first statement executed in a fresh session,
+            # otherwise it fails with "cannot be updated after the old version
+            # has already been loaded". Detect the need in a throwaway
+            # connection, then run the update as the first command in a
+            # dedicated connection.
+            with get_connection_cursor(**conn_kwargs) as cur:
+                cur.execute("SELECT default_version <> installed_version"
+                            " FROM pg_catalog.pg_available_extensions"
+                            " WHERE name = 'timescaledb' AND installed_version IS NOT NULL")
+                row = cur.fetchone()
+            if row and row[0]:
+                with get_connection_cursor(**conn_kwargs) as cur:
+                    query = 'ALTER EXTENSION timescaledb UPDATE'
+                    logger.info("Executing '%s' in the database=%s", query, d)
+                    try:
+                        cur.execute(query)
+                    except Exception as e:
+                        logger.error('Failed: %r', e)
+
             with get_connection_cursor(**conn_kwargs) as cur:
                 cur.execute('SELECT quote_ident(extname), extversion FROM pg_catalog.pg_extension')
                 for extname, version in cur.fetchall():
+                    # timescaledb is handled above as the first command
+                    if extname == 'timescaledb':
+                        continue
                     # require manual update to 5.X+
                     if extname == 'pg_partman' and int(version[0]) < 5:
                         logger.warning("Skipping update of '%s' in database=%s. "
