@@ -45,7 +45,9 @@ COPY --from=dependencies-builder /builddeps/*.deb /builddeps/
 
 ARG PGVERSION
 ARG TIMESCALEDB
-ARG TIMESCALEDB_APACHE_ONLY=true
+# Build the TimescaleDB community edition (Timescale License) instead of the
+# Apache-2.0 OSS build, and install timescaledb-toolkit alongside it.
+ARG TIMESCALEDB_APACHE_ONLY=false
 ARG TIMESCALEDB_TOOLKIT=true
 ARG COMPRESS
 ARG PGOLDVERSIONS="13 14 15 16"
