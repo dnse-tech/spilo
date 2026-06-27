@@ -45,7 +45,9 @@ COPY --from=dependencies-builder /builddeps/*.deb /builddeps/
 
 ARG PGVERSION
 ARG TIMESCALEDB
-ARG TIMESCALEDB_APACHE_ONLY=true
+# Build the TimescaleDB community edition (Timescale License) instead of the
+# Apache-2.0 OSS build, and install timescaledb-toolkit alongside it.
+ARG TIMESCALEDB_APACHE_ONLY=false
 ARG TIMESCALEDB_TOOLKIT=true
 ARG COMPRESS
 ARG PGOLDVERSIONS="12 13 14 15"
@@ -54,7 +56,7 @@ ARG WITH_PERL=false
 ARG DEB_PG_SUPPORTED_VERSIONS="$PGOLDVERSIONS $PGVERSION"
 
 # Install PostgreSQL, extensions and contribs
-ENV POSTGIS_VERSION=3.5 \
+ENV POSTGIS_VERSION=3.6 \
     BG_MON_COMMIT=ef60961eff92672b1e21f5260dc1211367da6f1f \
     PG_AUTH_MON_COMMIT=3d010e5959285c32b155e8064c9c9b57869aeca7 \
     PG_MON_COMMIT=a6c5982368edd876edbee01e51b91e7387071e21 \
