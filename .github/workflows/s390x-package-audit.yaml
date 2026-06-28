@@ -1,0 +1,68 @@
+name: s390x package audit
+
+# One-off diagnostic: verifies which PGDG/Debian packages required by the spilo
+# build are actually installable from the (frozen) PGDG s390x archive. Runs on
+# the native s390x runner and only simulates installs (no compilation), so it is
+# cheap. Trigger manually via the Actions tab / workflow_dispatch.
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - feature/s390x-spilo-18
+
+jobs:
+  audit:
+    runs-on: [self-hosted, s390x]
+    steps:
+    - name: Audit package availability on PGDG s390x archive
+      run: |
+        docker run --rm ubuntu:22.04 bash -c '
+          set -e
+          export DEBIAN_FRONTEND=noninteractive
+          apt-get update -qq
+          apt-get install -y -qq curl ca-certificates gnupg lsb-release >/dev/null
+          CODENAME=$(lsb_release -cs)
+          for t in deb deb-src; do
+            echo "$t https://apt-archive.postgresql.org/pub/repos/apt/ ${CODENAME}-pgdg-archive main" >> /etc/apt/sources.list.d/pgdg.list
+          done
+          curl -s https://www.postgresql.org/media/keys/ACCC4CF8.asc | gpg --dearmor > /etc/apt/trusted.gpg.d/apt.postgresql.org.gpg
+          apt-get update
+
+          check() {
+            if apt-get install -s -y "$1" >/dev/null 2>&1; then
+              echo "OK    $1"
+            else
+              echo "MISS  $1"
+            fi
+          }
+
+          echo "==================== PER-VERSION PACKAGES ===================="
+          for v in 14 15 16 17 18; do
+            echo "----- PG $v -----"
+            for p in \
+              postgresql-$v postgresql-contrib-$v postgresql-server-dev-$v \
+              postgresql-plpython3-$v postgresql-pltcl-$v postgresql-plperl-$v \
+              postgresql-$v-cron postgresql-$v-pgextwlist postgresql-$v-pgq3 \
+              postgresql-$v-pg-stat-kcache postgresql-$v-pg-permissions postgresql-$v-set-user \
+              postgresql-$v-dirtyread postgresql-$v-extra-window-functions postgresql-$v-first-last-agg \
+              postgresql-$v-hypopg postgresql-$v-partman postgresql-$v-plproxy postgresql-$v-pgaudit \
+              postgresql-$v-pldebugger postgresql-$v-pglogical postgresql-$v-plpgsql-check \
+              postgresql-$v-pg-checksums postgresql-$v-pgq-node postgresql-$v-postgis-3 \
+              postgresql-$v-postgis-3-scripts postgresql-$v-repack postgresql-$v-wal2json \
+              postgresql-$v-decoderbufs postgresql-$v-pllua postgresql-$v-pgvector \
+              postgresql-$v-pgfaceting postgresql-$v-hll postgresql-$v-roaringbitmap \
+              postgresql-$v-pgl-ddl-deploy postgresql-$v-pglogical-ticker ; do
+              check "$p"
+            done
+          done
+
+          echo "==================== NON-VERSIONED PACKAGES ===================="
+          for p in \
+            postgresql-all postgresql-server-dev-all libpq-dev \
+            skytools3-ticker pgbouncer postgresql-common \
+            libevent-2.1 libevent-pthreads-2.1 brotli libbrotli1 \
+            python3.10 python3-psycopg2 libllvm15 ; do
+            check "$p"
+          done
+        '

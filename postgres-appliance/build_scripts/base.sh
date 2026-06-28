@@ -7,8 +7,25 @@
 export DEBIAN_FRONTEND=noninteractive
 MAKEFLAGS="-j $(grep -c ^processor /proc/cpuinfo)"
 export MAKEFLAGS
+ARCH="$(dpkg --print-architecture)"
 
 set -ex
+
+# The PGDG s390x archive is frozen and lacks some extensions (and PostgreSQL
+# majors) that exist for amd64/arm64. On s390x we therefore install on a
+# best-effort basis: this prints only the packages that are actually installable
+# (existence + satisfiable dependencies), logging the ones it skips. On other
+# arches every requested package is mandatory, so callers bypass this filter.
+keep_installable() {
+    local pkg
+    for pkg in "$@"; do
+        if apt-get install -s -y "$pkg" >/dev/null 2>&1; then
+            printf '%s\n' "$pkg"
+        else
+            echo "s390x: skipping unavailable package $pkg" >&2
+        fi
+    done
+}
 sed -i 's/^#\s*\(deb.*universe\)$/\1/g' /etc/apt/sources.list
 
 apt-get update
@@ -70,8 +87,12 @@ apt-get install -y \
 sed -ri 's/#(create_main_cluster) .*$/\1 = false/' /etc/postgresql-common/createcluster.conf
 
 for version in $DEB_PG_SUPPORTED_VERSIONS; do
-    sed -i "s/ main.*$/ main $version/g" /etc/apt/sources.list.d/pgdg.list
-    apt-get update
+    # The s390x archive suite is flat ('main' only); the per-version component
+    # rewrite below applies only to the live multi-arch PGDG repo.
+    if [ "$ARCH" != "s390x" ]; then
+        sed -i "s/ main.*$/ main $version/g" /etc/apt/sources.list.d/pgdg.list
+        apt-get update
+    fi
 
     if [ "$DEMO" != "true" ]; then
         EXTRAS=("postgresql-pltcl-${version}"
@@ -104,23 +125,41 @@ for version in $DEB_PG_SUPPORTED_VERSIONS; do
 
     fi
 
-    if [ "${TIMESCALEDB_APACHE_ONLY}" = "true" ]; then
-        EXTRAS+=("timescaledb-2-oss-postgresql-${version}")
-    else
-        EXTRAS+=("timescaledb-2-postgresql-${version}")
+    # TimescaleDB apt packages exist for amd64/arm64 only; s390x has none.
+    if [ "$ARCH" != "s390x" ]; then
+        if [ "${TIMESCALEDB_APACHE_ONLY}" = "true" ]; then
+            EXTRAS+=("timescaledb-2-oss-postgresql-${version}")
+        else
+            EXTRAS+=("timescaledb-2-postgresql-${version}")
+        fi
     fi
 
     # Install PostgreSQL binaries, contrib, plproxy and multiple pl's
-    apt-get install --allow-downgrades -y \
-        "postgresql-${version}-cron" \
-        "postgresql-contrib-${version}" \
-        "postgresql-${version}-pgextwlist" \
-        "postgresql-plpython3-${version}" \
-        "postgresql-server-dev-${version}" \
-        "postgresql-${version}-pgq3" \
-        "postgresql-${version}-pg-stat-kcache" \
-        "${EXTRAS[@]}"
+    CORE_PACKAGES=(
+        "postgresql-${version}-cron"
+        "postgresql-contrib-${version}"
+        "postgresql-${version}-pgextwlist"
+        "postgresql-plpython3-${version}"
+        "postgresql-server-dev-${version}"
+        "postgresql-${version}-pgq3"
+        "postgresql-${version}-pg-stat-kcache"
+        "${EXTRAS[@]}")
 
+    # On s390x drop packages the frozen archive does not provide (best-effort);
+    # on other arches install the full set as a hard requirement.
+    if [ "$ARCH" = "s390x" ]; then
+        mapfile -t CORE_PACKAGES < <(keep_installable "${CORE_PACKAGES[@]}")
+        if [ "${#CORE_PACKAGES[@]}" -eq 0 ]; then
+            echo "s390x: no installable packages for PG ${version}, skipping major" >&2
+            continue
+        fi
+    fi
+
+    apt-get install --allow-downgrades -y "${CORE_PACKAGES[@]}"
+
+    # TimescaleDB apt cleanup + toolkit apply only to the amd64/arm64 apt
+    # packages; s390x has no TimescaleDB packages, so skip this whole block.
+    if [ "$ARCH" != "s390x" ]; then
     # Clean up timescaledb versions except the last 12 minor versions.
     # The window must be wide enough that a TimescaleDB version installed on the
     # oldest supported PostgreSQL major (e.g. 2.19.x on PG13/14) is still present
@@ -147,35 +186,53 @@ for version in $DEB_PG_SUPPORTED_VERSIONS; do
             echo "Skipping timescaledb-toolkit-postgresql-$version as it's not found in the repository"
         fi
     fi
+    fi  # end "$ARCH" != "s390x" TimescaleDB apt block
 
-    EXTRA_EXTENSIONS=()
-    if [ "$DEMO" != "true" ]; then
-        EXTRA_EXTENSIONS+=("plprofiler" "pg_mon-${PG_MON_COMMIT}")
+    # Source-built extensions need this version's pg_config. On s390x the archive
+    # may not provide postgresql-server-dev-<old version>, so build only when the
+    # dev headers are present (best-effort for old majors); always build elsewhere.
+    if [ "$ARCH" != "s390x" ] || [ -x "/usr/lib/postgresql/$version/bin/pg_config" ]; then
+        EXTRA_EXTENSIONS=()
+        if [ "$DEMO" != "true" ]; then
+            EXTRA_EXTENSIONS+=("plprofiler" "pg_mon-${PG_MON_COMMIT}")
+        fi
+
+        for n in bg_mon-${BG_MON_COMMIT} \
+                pg_auth_mon-${PG_AUTH_MON_COMMIT} \
+                set_user \
+                pg_permissions-${PG_PERMISSIONS_COMMIT} \
+                pg_profile-${PG_PROFILE} \
+                "${EXTRA_EXTENSIONS[@]}"; do
+            make -C "$n" USE_PGXS=1 clean install-strip
+        done
     fi
-
-    for n in bg_mon-${BG_MON_COMMIT} \
-            pg_auth_mon-${PG_AUTH_MON_COMMIT} \
-            set_user \
-            pg_permissions-${PG_PERMISSIONS_COMMIT} \
-            pg_profile-${PG_PROFILE} \
-            "${EXTRA_EXTENSIONS[@]}"; do
-        make -C "$n" USE_PGXS=1 clean install-strip
-    done
 done
 
 apt-get install -y skytools3-ticker pgbouncer
 
-sed -i "s/ main.*$/ main/g" /etc/apt/sources.list.d/pgdg.list
+# Reset PGDG component back to the default suite (s390x archive keeps flat 'main')
+if [ "$ARCH" != "s390x" ]; then
+    sed -i "s/ main.*$/ main/g" /etc/apt/sources.list.d/pgdg.list
+fi
 apt-get update
 apt-get install -y postgresql postgresql-server-dev-all postgresql-all libpq-dev
 for version in $DEB_PG_SUPPORTED_VERSIONS; do
-    apt-get install -y "postgresql-server-dev-${version}"
+    # On s390x the archive may lack dev headers for an old major; best-effort there.
+    if [ "$ARCH" = "s390x" ]; then
+        apt-get install -y "postgresql-server-dev-${version}" || \
+            echo "s390x: skipping unavailable postgresql-server-dev-${version}" >&2
+    else
+        apt-get install -y "postgresql-server-dev-${version}"
+    fi
 done
 
 if [ "$DEMO" != "true" ]; then
     for version in $DEB_PG_SUPPORTED_VERSIONS; do
         # create postgis symlinks to make it possible to perform update
-        ln -s "postgis-${POSTGIS_VERSION%.*}.so" "/usr/lib/postgresql/${version}/lib/postgis-2.5.so"
+        # (skip majors whose lib dir is absent, which can happen on s390x)
+        if [ -d "/usr/lib/postgresql/${version}/lib" ]; then
+            ln -sf "postgis-${POSTGIS_VERSION%.*}.so" "/usr/lib/postgresql/${version}/lib/postgis-2.5.so"
+        fi
     done
 fi
 
