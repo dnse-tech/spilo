@@ -96,13 +96,15 @@ for version in $DEB_PG_SUPPORTED_VERSIONS; do
                 "postgresql-${version}-wal2json"
                 "postgresql-${version}-decoderbufs"
                 "postgresql-${version}-pllua"
-                "postgresql-${version}-pgvector"
-                "postgresql-${version}-pgfaceting")
+                "postgresql-${version}-pgvector")
 
-        # hll and roaringbitmap have no s390x build in the PGDG archive
+        # hll and roaringbitmap have no s390x build in the PGDG archive.
+        # pgfaceting hard-depends on roaringbitmap, so it is uninstallable on
+        # s390x as well and must be skipped together with them.
         if [ "$ARCH" != "s390x" ]; then
             EXTRAS+=("postgresql-${version}-hll"
-                     "postgresql-${version}-roaringbitmap")
+                     "postgresql-${version}-roaringbitmap"
+                     "postgresql-${version}-pgfaceting")
         fi
 
         if [ "$version" != "18" ]; then
