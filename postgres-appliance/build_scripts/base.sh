@@ -86,6 +86,19 @@ apt-get install -y \
 # forbid creation of a main cluster when package is installed
 sed -ri 's/#(create_main_cluster) .*$/\1 = false/' /etc/postgresql-common/createcluster.conf
 
+# The PGDG s390x archive carries almost no PG13/14 packages (core and most
+# extensions are absent), so on s390x only the still-fully-stocked majors
+# (15, 16, 17) are built. This also limits in-place major upgrades on s390x to
+# starting from PG15.
+if [ "$ARCH" = "s390x" ]; then
+    s390x_versions=""
+    for v in $DEB_PG_SUPPORTED_VERSIONS; do
+        [ "$v" -ge 15 ] && s390x_versions="$s390x_versions $v"
+    done
+    DEB_PG_SUPPORTED_VERSIONS="$(echo "$s390x_versions" | xargs)"
+    echo "s390x: restricting builds to PostgreSQL $DEB_PG_SUPPORTED_VERSIONS" >&2
+fi
+
 for version in $DEB_PG_SUPPORTED_VERSIONS; do
     # The s390x archive suite is flat ('main' only); the per-version component
     # rewrite below applies only to the live multi-arch PGDG repo.
