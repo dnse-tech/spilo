@@ -32,15 +32,34 @@ ln -s /run/locale-archive /usr/lib/locale/locale-archive
 ln -s /usr/lib/locale/locale-archive.22 /run/locale-archive
 
 # Add PGDG repositories
+ARCH="$(dpkg --print-architecture)"
 DISTRIB_CODENAME=$(sed -n 's/DISTRIB_CODENAME=//p' /etc/lsb-release)
-for t in deb deb-src; do
-    echo "$t http://apt.postgresql.org/pub/repos/apt/ ${DISTRIB_CODENAME}-pgdg main" >> /etc/apt/sources.list.d/pgdg.list
-done
+if [ "$ARCH" = "s390x" ]; then
+    # PGDG has no live s390x suite; use the archive (frozen but available for s390x)
+    for t in deb deb-src; do
+        echo "$t https://apt-archive.postgresql.org/pub/repos/apt/ ${DISTRIB_CODENAME}-pgdg-archive main" >> /etc/apt/sources.list.d/pgdg.list
+    done
+else
+    for t in deb deb-src; do
+        echo "$t http://apt.postgresql.org/pub/repos/apt/ ${DISTRIB_CODENAME}-pgdg main" >> /etc/apt/sources.list.d/pgdg.list
+    done
+fi
 curl -s -o - https://www.postgresql.org/media/keys/ACCC4CF8.asc | gpg --dearmor > /etc/apt/trusted.gpg.d/apt.postgresql.org.gpg
 
-# add TimescaleDB repository
-echo "deb [signed-by=/etc/apt/keyrings/timescale_timescaledb-archive-keyring.gpg] https://packagecloud.io/timescale/timescaledb/ubuntu/ ${DISTRIB_CODENAME} main" | tee /etc/apt/sources.list.d/timescaledb.list
-curl -fsSL https://packagecloud.io/timescale/timescaledb/gpgkey | gpg --dearmor | tee /etc/apt/keyrings/timescale_timescaledb-archive-keyring.gpg > /dev/null
+# PGDG ships no s390x JIT packages; install our pre-built postgresql-NN-jit debs so the
+# postgresql-NN-jit-llvm dependency can be satisfied during the binary install step.
+if [ "$ARCH" = "s390x" ] && [ -d /builddeps/packages/s390x ]; then
+    apt-get update
+    apt-get install -y libllvm15
+    dpkg -i /builddeps/packages/s390x/postgresql-*-jit_*.deb || true
+fi
+
+# add TimescaleDB repository (packagecloud ships amd64/arm64 only; s390x gets TimescaleDB
+# from a source build later in base.sh, so skip the apt repo here)
+if [ "$ARCH" != "s390x" ]; then
+    echo "deb [signed-by=/etc/apt/keyrings/timescale_timescaledb-archive-keyring.gpg] https://packagecloud.io/timescale/timescaledb/ubuntu/ ${DISTRIB_CODENAME} main" | tee /etc/apt/sources.list.d/timescaledb.list
+    curl -fsSL https://packagecloud.io/timescale/timescaledb/gpgkey | gpg --dearmor | tee /etc/apt/keyrings/timescale_timescaledb-archive-keyring.gpg > /dev/null
+fi
 
 # Clean up
 apt-get purge -y libcap2-bin

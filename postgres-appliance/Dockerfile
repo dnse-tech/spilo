@@ -33,6 +33,7 @@ ARG DEMO
 ARG ADDITIONAL_LOCALES
 
 COPY build_scripts/prepare.sh build_scripts/locales.sh /builddeps/
+COPY packages/ /builddeps/packages/
 
 RUN bash /builddeps/prepare.sh
 

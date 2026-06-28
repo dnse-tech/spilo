@@ -7,6 +7,7 @@
 export DEBIAN_FRONTEND=noninteractive
 MAKEFLAGS="-j $(grep -c ^processor /proc/cpuinfo)"
 export MAKEFLAGS
+ARCH="$(dpkg --print-architecture)"
 
 set -ex
 sed -i 's/^#\s*\(deb.*universe\)$/\1/g' /etc/apt/sources.list
@@ -68,15 +69,18 @@ apt-get install -y \
 sed -ri 's/#(create_main_cluster) .*$/\1 = false/' /etc/postgresql-common/createcluster.conf
 
 for version in $DEB_PG_SUPPORTED_VERSIONS; do
-    sed -i "s/ main.*$/ main $version/g" /etc/apt/sources.list.d/pgdg.list
-    apt-get update
+    # The s390x archive suite is flat ('main' only); the per-version component rewrite
+    # below applies only to the live multi-arch PGDG repo.
+    if [ "$ARCH" != "s390x" ]; then
+        sed -i "s/ main.*$/ main $version/g" /etc/apt/sources.list.d/pgdg.list
+        apt-get update
+    fi
 
     if [ "$DEMO" != "true" ]; then
         EXTRAS=("postgresql-pltcl-${version}"
                 "postgresql-${version}-dirtyread"
                 "postgresql-${version}-extra-window-functions"
                 "postgresql-${version}-first-last-agg"
-                "postgresql-${version}-hll"
                 "postgresql-${version}-hypopg"
                 "postgresql-${version}-partman"
                 "postgresql-${version}-plproxy"
@@ -93,8 +97,13 @@ for version in $DEB_PG_SUPPORTED_VERSIONS; do
                 "postgresql-${version}-decoderbufs"
                 "postgresql-${version}-pllua"
                 "postgresql-${version}-pgvector"
-                "postgresql-${version}-roaringbitmap"
                 "postgresql-${version}-pgfaceting")
+
+        # hll and roaringbitmap have no s390x build in the PGDG archive
+        if [ "$ARCH" != "s390x" ]; then
+            EXTRAS+=("postgresql-${version}-hll"
+                     "postgresql-${version}-roaringbitmap")
+        fi
 
         if [ "$version" != "18" ]; then
             EXTRAS+=("postgresql-${version}-pgl-ddl-deploy"
@@ -107,10 +116,13 @@ for version in $DEB_PG_SUPPORTED_VERSIONS; do
 
     fi
 
-    if [ "${TIMESCALEDB_APACHE_ONLY}" = "true" ]; then
-        EXTRAS+=("timescaledb-2-oss-postgresql-${version}")
-    else
-        EXTRAS+=("timescaledb-2-postgresql-${version}")
+    # TimescaleDB apt packages exist for amd64/arm64 only; s390x is built from source below.
+    if [ "$ARCH" != "s390x" ]; then
+        if [ "${TIMESCALEDB_APACHE_ONLY}" = "true" ]; then
+            EXTRAS+=("timescaledb-2-oss-postgresql-${version}")
+        else
+            EXTRAS+=("timescaledb-2-postgresql-${version}")
+        fi
     fi
 
     # Install PostgreSQL binaries, contrib, plproxy and multiple pl's
@@ -126,6 +138,9 @@ for version in $DEB_PG_SUPPORTED_VERSIONS; do
         "postgresql-${version}-set-user" \
         "${EXTRAS[@]}"
 
+    # TimescaleDB apt cleanup + toolkit apply only to the amd64/arm64 apt packages.
+    # On s390x TimescaleDB is built from source (single version), so skip this block.
+    if [ "$ARCH" != "s390x" ]; then
     # Clean up timescaledb versions - keep at least 5 minor versions, but ensure compatibility with the lowest/oldest PG version (where possible)
 
     exclude_patterns=()
@@ -175,6 +190,7 @@ for version in $DEB_PG_SUPPORTED_VERSIONS; do
             echo "Skipping timescaledb-toolkit-postgresql-$version as it's not found in the repository"
         fi
     fi
+    fi  # end "$ARCH" != "s390x" TimescaleDB apt block
 
     EXTRA_EXTENSIONS=()
     if [ "$DEMO" != "true" ]; then
@@ -192,7 +208,10 @@ done
 
 apt-get install -y skytools3-ticker pgbouncer
 
-sed -i "s/ main.*$/ main/g" /etc/apt/sources.list.d/pgdg.list
+# Reset PGDG component back to the default suite (s390x archive keeps the flat 'main')
+if [ "$ARCH" != "s390x" ]; then
+    sed -i "s/ main.*$/ main/g" /etc/apt/sources.list.d/pgdg.list
+fi
 apt-get update
 apt-get install -y postgresql postgresql-server-dev-all postgresql-all libpq-dev
 for version in $DEB_PG_SUPPORTED_VERSIONS; do
