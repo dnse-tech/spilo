@@ -48,13 +48,9 @@ else
 fi
 curl -s -o - https://www.postgresql.org/media/keys/ACCC4CF8.asc | gpg --dearmor > /etc/apt/trusted.gpg.d/apt.postgresql.org.gpg
 
-# PGDG ships no s390x JIT packages; install our pre-built postgresql-NN-jit debs so the
-# postgresql-NN-jit-llvm dependency can be satisfied during the binary install step.
-if [ "$ARCH" = "s390x" ] && [ -d /builddeps/packages/s390x ]; then
-    apt-get update
-    apt-get install -y libllvm15
-    dpkg -i /builddeps/packages/s390x/postgresql-*-jit_*.deb || true
-fi
+# Note: on the PGDG s390x archive the JIT module (llvmjit.so) is bundled directly
+# into each postgresql-NN package (it is a separate postgresql-NN-jit package only
+# on amd64/arm64), so no extra JIT package needs to be installed here.
 
 # add TimescaleDB repository (packagecloud ships amd64/arm64 only; s390x has no
 # TimescaleDB packages, so skip the apt repo there)
