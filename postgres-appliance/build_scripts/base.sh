@@ -329,7 +329,9 @@ if [ "$DEMO" != "true" ]; then
                 started=1
             elif [ $started = 1 ]; then
                 for d1 in extension contrib contrib/postgis-$POSTGIS_VERSION; do
-                    cd "$v1/$d1"
+                    # The s390x archive ships an older PostGIS (3.5) than POSTGIS_VERSION
+                    # (3.6), so the postgis contrib dir may not exist; skip if absent.
+                    cd "$v1/$d1" || continue
                     d2="$d1"
                     d1="../../${v1##*/}/$d1"
                     if [ "${d2%-*}" = "contrib/postgis" ]; then
