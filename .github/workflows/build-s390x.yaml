@@ -32,6 +32,10 @@ on:
 env:
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository }}
+  # TEMPORARY (validation only): append s390x to this existing community manifest
+  # on a feature-branch push. Remove together with the branch trigger and the
+  # merge-job override below before merging to the default branch.
+  VALIDATE_TAG: 4.0-p2-tsl
 
 jobs:
   build-s390x:
@@ -60,6 +64,8 @@ jobs:
           TAG="${GITHUB_REF#refs/tags/}"
         elif [[ -n "${{ github.event.inputs.tag }}" ]]; then
           TAG="${{ github.event.inputs.tag }}"
+        elif [[ -n "${VALIDATE_TAG:-}" ]]; then
+          TAG="$VALIDATE_TAG"   # TEMPORARY validation override
         else
           TAG="dev-${GITHUB_SHA::8}"
         fi
@@ -107,7 +113,8 @@ jobs:
     needs: build-s390x
     # Skip on plain feature-branch validation pushes (build job alone proves the
     # s390x image builds); run for release tags and manual dispatches.
-    if: ${{ github.ref_type == 'tag' || github.event_name == 'workflow_dispatch' }}
+    # (TEMPORARY: also run when VALIDATE_TAG is set, to validate the merge path.)
+    if: ${{ github.ref_type == 'tag' || github.event_name == 'workflow_dispatch' || env.VALIDATE_TAG != '' }}
     runs-on: ubuntu-22.04
     permissions:
       contents: 'read'
