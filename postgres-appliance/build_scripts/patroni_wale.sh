@@ -13,10 +13,12 @@ ARCH="$(dpkg --print-architecture)"
 BUILD_PACKAGES=(python3-pip python3-wheel python3-dev git patchutils binutils gcc)
 
 # On s390x, cryptography (pulled in by wal-e[google]) has no installable wheel,
-# so pip builds it from source. Its build backend is maturin, which needs a Rust
-# toolchain plus OpenSSL/FFI headers. These are purged again at the end.
+# so pip builds it from source via maturin. cryptography bootstraps its own
+# modern Rust toolchain when none is on PATH, so we deliberately do NOT install
+# the (too old, lockfile-v3-only) apt cargo/rustc here — only the OpenSSL/FFI
+# headers and pkg-config its native build links against. Purged again at the end.
 if [ "$ARCH" = "s390x" ]; then
-    BUILD_PACKAGES+=(cargo rustc pkg-config libssl-dev libffi-dev)
+    BUILD_PACKAGES+=(pkg-config libssl-dev libffi-dev)
 fi
 
 apt-get update
