@@ -8,8 +8,6 @@ on:
   push:
     tags:
       - '*'
-    branches:
-      - feature/s390x-spilo-16   # TEMPORARY: build-only validation on this branch
   workflow_dispatch:
     inputs:
       tag:
