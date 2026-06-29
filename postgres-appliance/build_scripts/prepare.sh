@@ -34,10 +34,18 @@ ln -s /run/locale-archive /usr/lib/locale/locale-archive
 ln -s /usr/lib/locale/locale-archive.22 /run/locale-archive
 
 # Add PGDG repositories
+ARCH="$(dpkg --print-architecture)"
 DISTRIB_CODENAME=$(sed -n 's/DISTRIB_CODENAME=//p' /etc/lsb-release)
-for t in deb deb-src; do
-    echo "$t http://apt.postgresql.org/pub/repos/apt/ ${DISTRIB_CODENAME}-pgdg main" >> /etc/apt/sources.list.d/pgdg.list
-done
+if [ "$ARCH" = "s390x" ]; then
+    # PGDG has no live s390x suite; use the archive (frozen but available for s390x)
+    for t in deb deb-src; do
+        echo "$t https://apt-archive.postgresql.org/pub/repos/apt/ ${DISTRIB_CODENAME}-pgdg-archive main" >> /etc/apt/sources.list.d/pgdg.list
+    done
+else
+    for t in deb deb-src; do
+        echo "$t http://apt.postgresql.org/pub/repos/apt/ ${DISTRIB_CODENAME}-pgdg main" >> /etc/apt/sources.list.d/pgdg.list
+    done
+fi
 curl -s -o - https://www.postgresql.org/media/keys/ACCC4CF8.asc | gpg --dearmor > /etc/apt/trusted.gpg.d/apt.postgresql.org.gpg
 
 # Clean up

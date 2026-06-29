@@ -28,15 +28,20 @@ apt-get install -y curl ca-certificates
 
 mkdir /builddeps/wal-g
 
-# Download the prebuilt wal-g binary instead of building it from source: the
-# pinned wal-g release no longer compiles against the current Go toolchain.
-# For this wal-g version both architectures use the dashed "ubuntu-20.04" name.
+# Upstream wal-g ships no s390x release; our fork mirrors the tags and builds it
+# (s390x assets exist from v3.0.5 onward, so pin the nearest available there).
+WALG_REPO="https://github.com/wal-g/wal-g"
+WALG_TAG="$WALG_VERSION"
 if [ "$ARCH" = "amd64" ]; then
     PKG_NAME='wal-g-pg-ubuntu-20.04-amd64'
+elif [ "$ARCH" = "s390x" ]; then
+    PKG_NAME='wal-g-pg-ubuntu20.04-s390x'
+    WALG_REPO="https://github.com/dnse-tech/wal-g"
+    WALG_TAG="v3.0.5"
 else
-    PKG_NAME='wal-g-pg-ubuntu-20.04-aarch64'
+    PKG_NAME='wal-g-pg-ubuntu20.04-aarch64'
 fi
 
-curl -sL "https://github.com/wal-g/wal-g/releases/download/$WALG_VERSION/$PKG_NAME.tar.gz" \
+curl -sL "$WALG_REPO/releases/download/$WALG_TAG/$PKG_NAME.tar.gz" \
             | tar -C /builddeps/wal-g -xz
 mv "/builddeps/wal-g/$PKG_NAME" /builddeps/wal-g/wal-g
