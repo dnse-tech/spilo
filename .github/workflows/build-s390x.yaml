@@ -8,10 +8,6 @@ on:
   push:
     tags:
       - '*'
-    branches:
-      # Temporary: lets the s390x build be validated on the feature branch before
-      # this workflow reaches the default branch (where workflow_dispatch works).
-      - feature/s390x-spilo-17
   workflow_dispatch:
     inputs:
       tag:
@@ -19,10 +15,10 @@ on:
         required: false
         default: ''
       run_tests:
-        description: 'Run test_spilo.sh on the s390x image before publishing'
+        description: 'Run test_spilo.sh on the s390x image (opt-in; suite not yet s390x-ready)'
         type: boolean
         required: false
-        default: true
+        default: false
       merge_existing:
         description: 'Merge s390x into the existing amd64/arm64 manifest (release). Set false to publish an s390x-only tag for validation.'
         type: boolean
@@ -32,10 +28,6 @@ on:
 env:
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository }}
-  # TEMPORARY (validation only): append s390x to this existing community manifest
-  # on a feature-branch push. Remove together with the branch trigger and the
-  # merge-job override below before merging to the default branch.
-  VALIDATE_TAG: 4.0-p2-tsl
 
 jobs:
   build-s390x:
@@ -64,8 +56,6 @@ jobs:
           TAG="${GITHUB_REF#refs/tags/}"
         elif [[ -n "${{ github.event.inputs.tag }}" ]]; then
           TAG="${{ github.event.inputs.tag }}"
-        elif [[ -n "${VALIDATE_TAG:-}" ]]; then
-          TAG="$VALIDATE_TAG"   # TEMPORARY validation override
         else
           TAG="dev-${GITHUB_SHA::8}"
         fi
@@ -85,7 +75,7 @@ jobs:
     # Build natively into the local docker daemon and run the spilo test suite
     # before publishing. buildx caches the result, so the push build reuses it.
     - name: Build and load for testing
-      if: ${{ (github.ref_type == 'tag' || github.event_name == 'workflow_dispatch') && github.event.inputs.run_tests != 'false' }}
+      if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.run_tests == 'true' }}
       uses: docker/build-push-action@v6
       with:
         context: "postgres-appliance/"
@@ -94,7 +84,7 @@ jobs:
         tags: "${{ steps.image.outputs.IMAGE }}:${{ steps.image.outputs.TAG }}-s390x-test"
 
     - name: Test spilo docker image
-      if: ${{ (github.ref_type == 'tag' || github.event_name == 'workflow_dispatch') && github.event.inputs.run_tests != 'false' }}
+      if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.run_tests == 'true' }}
       env:
         SPILO_TEST_IMAGE: "${{ steps.image.outputs.IMAGE }}:${{ steps.image.outputs.TAG }}-s390x-test"
       run: |
@@ -113,8 +103,7 @@ jobs:
     needs: build-s390x
     # Skip on plain feature-branch validation pushes (build job alone proves the
     # s390x image builds); run for release tags and manual dispatches.
-    # (TEMPORARY: also run on the validation feature branch to exercise the merge.)
-    if: ${{ github.ref_type == 'tag' || github.event_name == 'workflow_dispatch' || github.ref_name == 'feature/s390x-spilo-17' }}
+    if: ${{ github.ref_type == 'tag' || github.event_name == 'workflow_dispatch' }}
     runs-on: ubuntu-22.04
     permissions:
       contents: 'read'

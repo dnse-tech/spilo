@@ -7,9 +7,6 @@ name: s390x package audit
 
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - feature/s390x-spilo-18
 
 jobs:
   audit:
