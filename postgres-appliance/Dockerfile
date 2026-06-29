@@ -1,5 +1,6 @@
 ARG BASE_IMAGE=ubuntu:22.04
 ARG PGVERSION=17
+ARG TIMESCALEDB="2.15.3 2.17.2"
 ARG DEMO=false
 ARG COMPRESS=false
 ARG ADDITIONAL_LOCALES=
@@ -18,7 +19,7 @@ FROM $BASE_IMAGE as dependencies-builder
 
 ARG DEMO
 
-ENV WALG_VERSION=v3.0.5
+ENV WALG_VERSION=v3.0.3
 
 COPY build_scripts/dependencies.sh /builddeps/
 
@@ -43,6 +44,7 @@ COPY build_scripts/base.sh /builddeps/
 COPY --from=dependencies-builder /builddeps/*.deb /builddeps/
 
 ARG PGVERSION
+ARG TIMESCALEDB
 # Build the TimescaleDB community edition (Timescale License) instead of the
 # Apache-2.0 OSS build, and install timescaledb-toolkit alongside it.
 ARG TIMESCALEDB_APACHE_ONLY=false

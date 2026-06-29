@@ -1,0 +1,161 @@
+name: Add s390x to multiarch image
+
+# Builds ONLY the linux/s390x image on the native s390x runner and merges it into
+# the existing ghcr manifest for the same tag — the amd64/arm64 images published
+# by the "Publish multiarch images on ghcr.io" workflow are reused as-is, never
+# rebuilt here.
+on:
+  push:
+    tags:
+      - '*'
+    branches:
+      - feature/s390x-spilo-17-p3   # TEMPORARY backfill trigger
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Image tag to build (defaults to dev-<short-sha> for manual runs)'
+        required: false
+        default: ''
+      run_tests:
+        description: 'Run test_spilo.sh on the s390x image (opt-in; suite not yet s390x-ready)'
+        type: boolean
+        required: false
+        default: false
+      merge_existing:
+        description: 'Merge s390x into the existing amd64/arm64 manifest (release). Set false to publish an s390x-only tag for validation.'
+        type: boolean
+        required: false
+        default: true
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+  VALIDATE_TAG: 4.0-p3-tsl   # TEMPORARY backfill: append s390x to this existing manifest
+
+jobs:
+  build-s390x:
+    name: Build linux/s390x (native)
+    runs-on: [self-hosted, s390x]
+    permissions:
+      contents: 'read'
+      packages: 'write'
+    outputs:
+      image: ${{ steps.image.outputs.IMAGE }}
+      tag: ${{ steps.image.outputs.TAG }}
+      digest: ${{ steps.build.outputs.digest }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: Derive image name and tag
+      id: image
+      working-directory: postgres-appliance
+      run: |
+        PGVERSION=$(sed -n 's/^ARG PGVERSION=\([1-9][0-9]*\).*$/\1/p' Dockerfile)
+        if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+          TAG="${GITHUB_REF#refs/tags/}"
+        elif [[ -n "${{ github.event.inputs.tag }}" ]]; then
+          TAG="${{ github.event.inputs.tag }}"
+        elif [[ -n "${VALIDATE_TAG:-}" ]]; then
+          TAG="$VALIDATE_TAG"   # TEMPORARY backfill override
+        else
+          TAG="dev-${GITHUB_SHA::8}"
+        fi
+        echo "IMAGE=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-$PGVERSION" >> $GITHUB_OUTPUT
+        echo "TAG=$TAG" >> $GITHUB_OUTPUT
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+    - name: Login to GHCR
+      uses: docker/login-action@v3
+      with:
+        registry: ${{ env.REGISTRY }}
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+
+    # Build natively into the local docker daemon and run the spilo test suite
+    # before publishing. buildx caches the result, so the push build reuses it.
+    - name: Build and load for testing
+      if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.run_tests == 'true' }}
+      uses: docker/build-push-action@v6
+      with:
+        context: "postgres-appliance/"
+        load: true
+        platforms: linux/s390x
+        tags: "${{ steps.image.outputs.IMAGE }}:${{ steps.image.outputs.TAG }}-s390x-test"
+
+    - name: Test spilo docker image
+      if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.run_tests == 'true' }}
+      env:
+        SPILO_TEST_IMAGE: "${{ steps.image.outputs.IMAGE }}:${{ steps.image.outputs.TAG }}-s390x-test"
+      run: |
+        bash postgres-appliance/tests/test_spilo.sh
+
+    - name: Build and push s390x by digest
+      id: build
+      uses: docker/build-push-action@v6
+      with:
+        context: "postgres-appliance/"
+        platforms: linux/s390x
+        outputs: type=image,name=${{ steps.image.outputs.IMAGE }},push-by-digest=true,name-canonical=true,push=true
+
+  merge:
+    name: Merge s390x into manifest
+    needs: build-s390x
+    # Skip on plain feature-branch validation pushes (build job alone proves the
+    # s390x image builds); run for release tags and manual dispatches.
+    if: ${{ github.ref_type == 'tag' || github.event_name == 'workflow_dispatch' || github.ref_name == 'feature/s390x-spilo-17-p3' }}
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: 'read'
+      packages: 'write'
+    env:
+      IMAGE: ${{ needs.build-s390x.outputs.image }}
+      TAG: ${{ needs.build-s390x.outputs.tag }}
+      S390X_DIGEST: ${{ needs.build-s390x.outputs.digest }}
+    steps:
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+    - name: Login to GHCR
+      uses: docker/login-action@v3
+      with:
+        registry: ${{ env.REGISTRY }}
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Append s390x to the existing manifest
+      run: |
+        set -euo pipefail
+        SRC=""
+        if [[ "${{ github.event.inputs.merge_existing }}" != "false" ]]; then
+          # The release pipeline publishes amd64/arm64 to the same tag, possibly
+          # slightly after this job starts. Wait for that manifest, then reuse its
+          # per-arch digests (no rebuild) and append s390x.
+          for i in $(seq 1 60); do
+            if docker buildx imagetools inspect "$IMAGE:$TAG" \
+                 --format '{{range .Manifest.Manifests}}{{.Platform.Architecture}} {{end}}' 2>/dev/null \
+                 | grep -qw amd64; then
+              SRC="$IMAGE:$TAG"
+              break
+            fi
+            echo "Waiting for amd64/arm64 manifest at $IMAGE:$TAG ... ($i)"
+            sleep 20
+          done
+          if [[ -z "$SRC" ]]; then
+            echo "::error::amd64/arm64 manifest for $IMAGE:$TAG not found; cannot merge s390x without rebuilding others."
+            exit 1
+          fi
+        else
+          echo "merge_existing=false: publishing an s390x-only manifest for validation."
+        fi
+
+        # shellcheck disable=SC2086
+        docker buildx imagetools create -t "$IMAGE:$TAG" $SRC "$IMAGE@$S390X_DIGEST"
+
+    - name: Inspect resulting manifest
+      run: docker buildx imagetools inspect "$IMAGE:$TAG"
