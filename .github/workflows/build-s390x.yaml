@@ -72,16 +72,40 @@ jobs:
         username: ${{ github.actor }}
         password: ${{ secrets.GITHUB_TOKEN }}
 
-    # Build natively into the local docker daemon and run the spilo test suite
+    # Build natively into the local docker daemon so the image can be exercised
     # before publishing. buildx caches the result, so the push build reuses it.
     - name: Build and load for testing
-      if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.run_tests == 'true' }}
       uses: docker/build-push-action@v6
       with:
         context: "postgres-appliance/"
         load: true
         platforms: linux/s390x
         tags: "${{ steps.image.outputs.IMAGE }}:${{ steps.image.outputs.TAG }}-s390x-test"
+
+    # TimescaleDB is compiled from source on s390x (no apt packages) and lands in
+    # shared_preload_libraries, so a library that is missing or does not load
+    # leaves Postgres unable to start at all. Prove it works before publishing.
+    - name: Smoke test TimescaleDB
+      env:
+        SPILO_TEST_IMAGE: "${{ steps.image.outputs.IMAGE }}:${{ steps.image.outputs.TAG }}-s390x-test"
+      run: |
+        cat > /tmp/timescaledb_smoke.sh <<'EOF'
+        set -ex
+        PGV=$(ls /usr/lib/postgresql | sort -V | tail -n 1)
+        export PATH="/usr/lib/postgresql/$PGV/bin:$PATH"
+        D=$(mktemp -d)
+        initdb -D "$D" -U postgres > /dev/null
+        echo "shared_preload_libraries = 'timescaledb'" >> "$D/postgresql.conf"
+        pg_ctl -D "$D" -o "-k /tmp -c listen_addresses=" -w start > /dev/null
+        psql -h /tmp -U postgres -c "CREATE EXTENSION timescaledb"
+        psql -h /tmp -U postgres -c "SELECT extversion FROM pg_extension WHERE extname = 'timescaledb'"
+        psql -h /tmp -U postgres -c "SHOW timescaledb.license"
+        psql -h /tmp -U postgres -c "CREATE TABLE t (ts timestamptz NOT NULL, v float8)"
+        psql -h /tmp -U postgres -c "SELECT create_hypertable('t', 'ts')"
+        EOF
+        docker run --rm -u postgres \
+          -v /tmp/timescaledb_smoke.sh:/tmp/timescaledb_smoke.sh:ro \
+          "$SPILO_TEST_IMAGE" bash /tmp/timescaledb_smoke.sh
 
     - name: Test spilo docker image
       if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.run_tests == 'true' }}
