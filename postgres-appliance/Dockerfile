@@ -1,6 +1,10 @@
 ARG BASE_IMAGE=ubuntu:22.04
 ARG PGVERSION=17
-ARG TIMESCALEDB="2.15.3 2.17.2"
+# Only used by the s390x source build (amd64/arm64 install TimescaleDB from apt).
+# Keep this in sync with the default_version the apt packages install, otherwise
+# the arches of one multiarch tag disagree on the extension version and data
+# written by one cannot be opened by the other.
+ARG TIMESCALEDB="2.28.1"
 ARG DEMO=false
 ARG COMPRESS=false
 ARG ADDITIONAL_LOCALES=
