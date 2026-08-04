@@ -208,10 +208,10 @@ for version in $DEB_PG_SUPPORTED_VERSIONS; do
     fi
     else
         # No TimescaleDB apt packages exist for s390x, so compile the extension
-        # from source against this major's pg_config. TIMESCALEDB lists several
-        # releases and each one supports only a window of PostgreSQL majors, so a
-        # release that rejects this major during cmake configure is skipped and
-        # the next one is tried.
+        # from source against this major's pg_config. Each TimescaleDB release
+        # supports only a window of PostgreSQL majors, so when TIMESCALEDB lists
+        # more than one, a release whose cmake configure rejects this major is
+        # skipped and the next one is tried.
         (
             cd timescaledb
             for v in $TIMESCALEDB; do
