@@ -74,6 +74,13 @@ curl -sL "https://github.com/cybertec-postgresql/pg_permissions/archive/$PG_PERM
 curl -sL "https://github.com/zubkov-andrei/pg_profile/archive/$PG_PROFILE.tar.gz" | tar xz
 git clone -b "$SET_USER" https://github.com/pgaudit/set_user.git
 
+# TimescaleDB ships apt packages for amd64/arm64 only. On s390x the extension is
+# compiled from source per PostgreSQL major inside the loop below, so fetch the
+# sources here.
+if [ "$ARCH" = "s390x" ]; then
+    git clone https://github.com/timescale/timescaledb.git
+fi
+
 apt-get install -y \
     postgresql-common \
     libevent-2.1 \
@@ -171,7 +178,7 @@ for version in $DEB_PG_SUPPORTED_VERSIONS; do
     apt-get install --allow-downgrades -y "${CORE_PACKAGES[@]}"
 
     # TimescaleDB apt cleanup + toolkit apply only to the amd64/arm64 apt
-    # packages; s390x has no TimescaleDB packages, so skip this whole block.
+    # packages; s390x has none and builds the extension from source instead.
     if [ "$ARCH" != "s390x" ]; then
     # Clean up timescaledb versions except the last 12 minor versions.
     # The window must be wide enough that a TimescaleDB version installed on the
@@ -199,7 +206,39 @@ for version in $DEB_PG_SUPPORTED_VERSIONS; do
             echo "Skipping timescaledb-toolkit-postgresql-$version as it's not found in the repository"
         fi
     fi
-    fi  # end "$ARCH" != "s390x" TimescaleDB apt block
+    else
+        # No TimescaleDB apt packages exist for s390x, so compile the extension
+        # from source against this major's pg_config. TIMESCALEDB lists several
+        # releases and each one supports only a window of PostgreSQL majors, so a
+        # release that rejects this major during cmake configure is skipped and
+        # the next one is tried.
+        (
+            cd timescaledb
+            for v in $TIMESCALEDB; do
+                git checkout "$v"
+                if BUILD_FORCE_REMOVE=true ./bootstrap -DREGRESS_CHECKS=OFF -DWARNINGS_AS_ERRORS=OFF \
+                        -DTAP_CHECKS=OFF -DPG_CONFIG="/usr/lib/postgresql/$version/bin/pg_config" \
+                        -DAPACHE_ONLY="$TIMESCALEDB_APACHE_ONLY" -DSEND_TELEMETRY_DEFAULT=NO; then
+                    make -C build install
+                    strip /usr/lib/postgresql/"$version"/lib/timescaledb*.so
+                else
+                    echo "s390x: TimescaleDB $v does not build against PostgreSQL $version, skipping" >&2
+                fi
+                git reset --hard
+                git clean -f -d
+            done
+        )
+
+        # Never ship an image without the extension: timescaledb ends up in
+        # shared_preload_libraries, so a missing library makes Postgres refuse to
+        # start instead of merely lacking a feature.
+        if [ ! -f "/usr/share/postgresql/$version/extension/timescaledb.control" ]; then
+            echo "s390x: none of the TimescaleDB releases '$TIMESCALEDB' built against PostgreSQL $version" >&2
+            exit 1
+        fi
+
+        # timescaledb-toolkit is a Rust extension with no s390x build; skipped.
+    fi  # end TimescaleDB apt (amd64/arm64) vs source (s390x) split
 
     # Source-built extensions need this version's pg_config. On s390x the archive
     # may not provide postgresql-server-dev-<old version>, so build only when the
